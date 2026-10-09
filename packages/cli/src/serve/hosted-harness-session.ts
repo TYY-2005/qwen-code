@@ -3449,19 +3449,23 @@ export function registerHostedHarnessSessionRoutes(
                 // The recovered lease hands back only once the terminal
                 // record is durable: a release persisted earlier would
                 // wedge the retry on runtime_session_not_acquirable.
-                await runtime.broker?.release().catch((cause: unknown) => {
-                  if (
-                    cause instanceof HostedWorkspaceBrokerRejection &&
-                    cause.status === 404
-                  )
-                    return;
-                  writeStderrLineSafe(
-                    'qwen serve: Interrupted channel wake turn ' +
-                      turn.turnId +
-                      ' could not hand back its recovered Runtime: ' +
-                      String(cause),
-                  );
-                });
+                if (brokerOptions && hasHostedCleanupDebt(session.managed)) {
+                  await retryHostedCleanup(session, brokerOptions);
+                } else {
+                  await runtime.broker?.release().catch((cause: unknown) => {
+                    if (
+                      cause instanceof HostedWorkspaceBrokerRejection &&
+                      cause.status === 404
+                    )
+                      return;
+                    writeStderrLineSafe(
+                      'qwen serve: Interrupted channel wake turn ' +
+                        turn.turnId +
+                        ' could not hand back its recovered Runtime: ' +
+                        String(cause),
+                    );
+                  });
+                }
                 return settled ? 'settled' : false;
               },
               writeStderr: writeStderrLineSafe,
@@ -4531,7 +4535,8 @@ export function registerHostedHarnessSessionRoutes(
         if (
           cause instanceof HostedToolRecoveryRequiredError ||
           cause instanceof HostedMcpRecoveryRequiredError ||
-          cause instanceof HostedHookRecoveryRequiredError
+          cause instanceof HostedHookRecoveryRequiredError ||
+          cause instanceof LlmRequestPreparationError
         ) {
           if (admitted) session.blocked = true;
           else if (!res.headersSent)
